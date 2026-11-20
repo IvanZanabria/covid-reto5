@@ -1,0 +1,71 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  cassandra:
+    image: cassandra:4.1
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=CovidCluster
+      - MAX_HEAP_SIZE=2G
+      - HEAP_NEWSIZE=512M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  neo4j:
+    image: neo4j:5.15.0
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      # La clave sale del archivo .env (no se sube a Git). Ver .env.example
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      # Sin esto, los procedimientos gds.* y apoc.* fallan por seguridad.
+      - NEO4J_dbms_security_procedures_unrestricted=gds.*,apoc.*
+      - NEO4J_dbms_security_procedures_allowlist=gds.*,apoc.*
+      # 639 097 nodos caben bien, pero GDS proyecta el grafo en memoria.
+      - NEO4J_server_memory_heap_max__size=2G
+      - NEO4J_server_memory_pagecache_size=1G
+    volumes:
+      - neo4j_data:/data
+      - ./data/processed:/var/lib/neo4j/import
+
+  spark:
+    # Variante con Python incluido. SPARK_MODE era de la imagen de Bitnami y
+    # aquí no hace nada, por eso el contenedor no quedaba encendido.
+    image: apache/spark:3.5.0-python3
+    user: root
+    working_dir: /app
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      # Solo se usan si se lee desde S3 (ver procesamiento/spark_analitica.py).
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET:-}
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - ./:/app
+
+volumes:
+  cassandra_data:
+  neo4j_data:
